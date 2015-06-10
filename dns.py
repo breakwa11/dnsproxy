@@ -111,11 +111,6 @@ class UDPRelay(object):
 				handler.close()
 				del self.handler[key]
 				break
-	
-def encode(data):
-	if hasattr(data, 'encode'):
-		return data.encode('utf-8')
-	return data
 
 def main_loop(bindaddr, dnslist, proxy):
 	dns = UDPRelay(proxy, dnslist)
@@ -125,6 +120,11 @@ def main_loop(bindaddr, dnslist, proxy):
 			time.sleep(0.1)
 	else:
 		logging.error("bind failed")
+
+def encode(data):
+	if hasattr(data, 'encode'):
+		return data.encode('utf-8')
+	return data
 
 def load_config():
 	fmt = '[%(asctime)s] %(levelname)s: %(message)s'
