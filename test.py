@@ -69,22 +69,24 @@ def test(bindaddr, dnslist, proxy):
 		s = socket.socket(af, socktype, proto)
 		s.setblocking(False)
 
-	r = s.sendto("\x12\x34\x01\x00\x00\x01\x00\x00\x00\x00\x00\x00"+"\x05"+"baidu"+"\x03"+"com"+"\x00\x00\x01\x00\x01",
-		(dnslist[0], 53) )
-	res = None
+	for try_cnt in xrange(4):
+		r = s.sendto("\x12\x34\x01\x00\x00\x01\x00\x00\x00\x00\x00\x00"+"\x05"+"baidu"+"\x03"+"com"+"\x00\x00\x01\x00\x01",
+			(dnslist[0], 53) )
+		res = None
 
-	for i in xrange(60):
-		time.sleep(0.3)
-		try:
-			res = s.recvfrom(2048)
+		for i in xrange(20):
+			time.sleep(0.3)
+			try:
+				res = s.recvfrom(2048)
+				break
+			except Exception as e:
+				pass
+
+		if res is not None:
+			print('Test success with proxy %s' % (proxy,))
 			break
-		except Exception as e:
-			pass
-
-	if res is not None:
-		print 'Test success with proxy %s' % (proxy,)
-	else:
-		print 'Test failure with proxy %s' % (proxy,)
+		else:
+			print('Test failure with proxy %s' % (proxy,))
 	try:
 		input()
 	except Exception as e:
