@@ -12,6 +12,7 @@ import socks
 import os
 import time
 import json
+import traceback
 
 def encode(data):
 	if hasattr(data, 'encode'):
@@ -61,7 +62,9 @@ def load_config():
 def test(bindaddr, dnslist, proxy):
 	for try_cnt in xrange(4):
 		if proxy:
-			s = socks.socksocket(socket.AF_INET, socket.SOCK_DGRAM)
+			addrs = socket.getaddrinfo(proxy[0], 0, 0, socket.SOCK_DGRAM, socket.SOL_UDP)
+			af, socktype, proto, canonname, sa = addrs[0]
+			s = socks.socksocket(af, socket.SOCK_DGRAM)
 			s.set_proxy(socks.SOCKS5, *proxy)
 		else:
 			addrs = socket.getaddrinfo("0.0.0.0", 0, 0, socket.SOCK_DGRAM, socket.SOL_UDP)
@@ -73,7 +76,8 @@ def test(bindaddr, dnslist, proxy):
 			r = s.sendto("\x12\x34\x01\x00\x00\x01\x00\x00\x00\x00\x00\x00"+"\x06"+"google"+"\x03"+"com"+"\x00\x00\x01\x00\x01",
 			(dnslist[0], 53) )
 		except Exception as e:
-			print("Send data ERROR: connection refused")
+			traceback.print_exc()
+			#print("Send data ERROR: connection refused")
 			break
 
 		res = None

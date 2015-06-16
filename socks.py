@@ -92,6 +92,34 @@ def inet_ntop(family, ipstr):
         v6addr = re.sub('::+', '::', v6addr, count=1)
         return to_bytes(v6addr)
 
+def inet_pton(family, addr):
+    addr = to_str(addr)
+    if family == socket.AF_INET:
+        return socket.inet_aton(addr)
+    elif family == socket.AF_INET6:
+        if '.' in addr:  # a v4 addr
+            v4addr = addr[addr.rindex(':') + 1:]
+            v4addr = socket.inet_aton(v4addr)
+            v4addr = map(lambda x: ('%02X' % ord(x)), v4addr)
+            v4addr.insert(2, ':')
+            newaddr = addr[:addr.rindex(':') + 1] + ''.join(v4addr)
+            return inet_pton(family, newaddr)
+        dbyts = [0] * 8  # 8 groups
+        grps = addr.split(':')
+        for i, v in enumerate(grps):
+            if v:
+                dbyts[i] = int(v, 16)
+            else:
+                for j, w in enumerate(grps[::-1]):
+                    if w:
+                        dbyts[7 - j] = int(w, 16)
+                    else:
+                        break
+                break
+        return b''.join((chr(i // 256) + chr(i % 256)) for i in dbyts)
+    else:
+        raise RuntimeError("What family?")
+
 class ProxyError(IOError):
     """
     socket_err contains original socket.error exception.
@@ -300,12 +328,19 @@ class socksocket(_BaseSocket):
         # Need to specify actual local port because
         # some relays drop packets if a port of zero is specified.
         # Avoid specifying host address in case of NAT though.
-        _, port = self.getsockname()
-        dst = ("0", port)
+        sockname = self.getsockname()
+        _, port = sockname[0], sockname[1]
 
-        self._proxyconn = _orig_socket()
         proxy = self._proxy_addr()
+        addrs = socket.getaddrinfo(proxy[0], 0, 0, socket.SOCK_STREAM, socket.SOL_TCP)
+        af, socktype, proto, canonname, sa = addrs[0]
+        self._proxyconn = _orig_socket(af, socktype, proto)
         self._proxyconn.connect(proxy)
+
+        if af == socket.AF_INET6:
+            dst = ("::", port)
+        else:
+            dst = ("0.0.0.0", port)
 
         UDP_ASSOCIATE = b"\x03"
         _, relay = self._SOCKS5_request(self._proxyconn, UDP_ASSOCIATE, dst)
@@ -494,12 +529,16 @@ class socksocket(_BaseSocket):
         host, port = addr
         proxy_type, _, _, rdns, username, password = self.proxy
 
-        # If the given destination address is an IP address, we'll
-        # use the IPv4 address request even if remote resolving was specified.
         try:
-            addr_bytes = socket.inet_aton(host)
-            file.write(b"\x01" + addr_bytes)
-            host = socket.inet_ntoa(addr_bytes)
+            #print("host %s" % (host,))
+            if '.' in host:
+                addr_bytes = socket.inet_aton(host)
+                file.write(b"\x01" + addr_bytes)
+                host = socket.inet_ntoa(addr_bytes)
+            else:
+                addr_bytes = inet_pton(socket.AF_INET6, host)
+                file.write(b"\x04" + addr_bytes)
+                host = inet_ntop(socket.AF_INET6, addr_bytes)
         except socket.error:
             # Well it's not an IP number, so it's probably a DNS name.
             if rdns:
