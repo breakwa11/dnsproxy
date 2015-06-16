@@ -59,23 +59,27 @@ def load_config():
 	return bind, dns_list, proxy
 
 def test(bindaddr, dnslist, proxy):
-	if proxy:
-		s = socks.socksocket(socket.AF_INET, socket.SOCK_DGRAM)
-		s.set_proxy(socks.SOCKS5, *proxy)
-		s.setblocking(False)
-	else:
-		addrs = socket.getaddrinfo("0.0.0.0", 0, 0, socket.SOCK_DGRAM, socket.SOL_UDP)
-		af, socktype, proto, canonname, sa = addrs[0]
-		s = socket.socket(af, socktype, proto)
+	for try_cnt in xrange(4):
+		if proxy:
+			s = socks.socksocket(socket.AF_INET, socket.SOCK_DGRAM)
+			s.set_proxy(socks.SOCKS5, *proxy)
+		else:
+			addrs = socket.getaddrinfo("0.0.0.0", 0, 0, socket.SOCK_DGRAM, socket.SOL_UDP)
+			af, socktype, proto, canonname, sa = addrs[0]
+			s = socket.socket(af, socktype, proto)
 		s.setblocking(False)
 
-	for try_cnt in xrange(4):
-		r = s.sendto("\x12\x34\x01\x00\x00\x01\x00\x00\x00\x00\x00\x00"+"\x05"+"baidu"+"\x03"+"com"+"\x00\x00\x01\x00\x01",
+		try:
+			r = s.sendto("\x12\x34\x01\x00\x00\x01\x00\x00\x00\x00\x00\x00"+"\x06"+"google"+"\x03"+"com"+"\x00\x00\x01\x00\x01",
 			(dnslist[0], 53) )
+		except Exception as e:
+			print("Send data ERROR: connection refused")
+			break
+
 		res = None
 
-		for i in xrange(20):
-			time.sleep(0.3)
+		for i in xrange(5*5):
+			time.sleep(0.2)
 			try:
 				res = s.recvfrom(2048)
 				break
@@ -87,6 +91,9 @@ def test(bindaddr, dnslist, proxy):
 			break
 		else:
 			print('Test failure with proxy %s' % (proxy,))
+			s.close()
+
+	print("Test finish")
 	try:
 		input()
 	except Exception as e:

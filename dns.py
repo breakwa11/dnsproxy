@@ -94,8 +94,8 @@ class UDPRelay(object):
 					self.handler[key] = UDPHandler(self.proxy, 10)
 				handler = self.handler[key]
 				logging.debug("send %s %d bytes to %s" % ( recv[1], len(recv[0]), target ) )
-				handler.sendto(recv[0], (target, 53))
-				#threading.Thread(target = handler.sendto, args = (recv[0], (target, 53))).start()
+				#handler.sendto(recv[0], (target, 53))
+				threading.Thread(target = handler.sendto, args = (recv[0], (target, 53))).start()
 
 		for key in self.handler:
 			handler = self.handler[key]
@@ -103,6 +103,7 @@ class UDPRelay(object):
 			if recv is not None:
 				logging.debug("recv %s %d bytes from %s" % ( key, len(recv[0]), recv[1] ) )
 				self.sendto(recv[0], key[0])
+				#threading.Thread(target = self.sendto, args = (recv[0], key[0])).start()
 
 		for key in self.handler:
 			handler = self.handler[key]
@@ -117,7 +118,7 @@ def main_loop(bindaddr, dnslist, proxy):
 	if dns.bind(bindaddr[0], bindaddr[1]):
 		while True:
 			dns.loop()
-			time.sleep(0.1)
+			time.sleep(0.01)
 	else:
 		logging.error("bind failed")
 
@@ -168,4 +169,3 @@ def load_config():
 
 if __name__ == '__main__':
 	main_loop(*load_config())
-

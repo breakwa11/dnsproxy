@@ -70,6 +70,28 @@ PRINTABLE_PROXY_TYPES = dict(zip(PROXY_TYPES.values(), PROXY_TYPES.keys()))
 
 _orgsocket = _orig_socket = socket.socket
 
+def to_bytes(s):
+    if bytes != str:
+        if type(s) == str:
+            return s.encode('utf-8')
+    return s
+
+def to_str(s):
+    if bytes != str:
+        if type(s) == bytes:
+            return s.decode('utf-8')
+    return s
+
+def inet_ntop(family, ipstr):
+    if family == socket.AF_INET:
+        return to_bytes(socket.inet_ntoa(ipstr))
+    elif family == socket.AF_INET6:
+        import re
+        v6addr = ':'.join(('%02X%02X' % (ord(i), ord(j))).lstrip('0')
+                          for i, j in zip(ipstr[::2], ipstr[1::2]))
+        v6addr = re.sub('::+', '::', v6addr, count=1)
+        return to_bytes(v6addr)
+
 class ProxyError(IOError):
     """
     socket_err contains original socket.error exception.
@@ -500,6 +522,8 @@ class socksocket(_BaseSocket):
         elif atyp == b"\x03":
             length = self._readall(file, 1)
             addr = self._readall(file, ord(length))
+        elif atyp == b"\x04":
+            addr = inet_ntop(socket.AF_INET6, self._readall(file, 16))
         else:
             raise GeneralProxyError("SOCKS5 proxy server sent invalid data")
 
