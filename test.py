@@ -85,7 +85,7 @@ def test(bindaddr, dnslist, proxy):
 		for i in xrange(5*5):
 			time.sleep(0.2)
 			try:
-				res = s.recvfrom(2048)
+				res = s.recvfrom(65536)
 				break
 			except Exception as e:
 				pass

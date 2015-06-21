@@ -530,15 +530,14 @@ class socksocket(_BaseSocket):
         proxy_type, _, _, rdns, username, password = self.proxy
 
         try:
-            #print("host %s" % (host,))
-            if '.' in host:
-                addr_bytes = socket.inet_aton(host)
-                file.write(b"\x01" + addr_bytes)
-                host = socket.inet_ntoa(addr_bytes)
-            else:
+            if ':' in host: #ipv6
                 addr_bytes = inet_pton(socket.AF_INET6, host)
                 file.write(b"\x04" + addr_bytes)
                 host = inet_ntop(socket.AF_INET6, addr_bytes)
+            else: #ipv4
+                addr_bytes = socket.inet_aton(host)
+                file.write(b"\x01" + addr_bytes)
+                host = socket.inet_ntoa(addr_bytes)
         except socket.error:
             # Well it's not an IP number, so it's probably a DNS name.
             if rdns:
@@ -547,7 +546,7 @@ class socksocket(_BaseSocket):
                 file.write(b"\x03" + chr(len(host_bytes)).encode() + host_bytes)
             else:
                 # Resolve locally
-                addr_bytes = socket.inet_aton(socket.gethostbyname(host))
+                addr_bytes = socket.inet_aton(socket.gethostbyname(host))  # TODO: gethostbyname not support ipv6
                 file.write(b"\x01" + addr_bytes)
                 host = socket.inet_ntoa(addr_bytes)
 

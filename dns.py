@@ -13,18 +13,25 @@ import os
 import threading
 import time
 import json
+import eventloop
+
+BUF_SIZE = 65536
 
 class UDPHandler(object):
-	def __init__(self, proxy, ttl):
+	def __init__(self, addr, proxy, ttl):
 		super(UDPHandler, self).__init__()
-		if proxy is None:
-			addrs = socket.getaddrinfo("0.0.0.0", 0, 0, socket.SOCK_DGRAM, socket.SOL_UDP)
+		self.proxy = proxy
+		self.key = None
+
+		if self.proxy is None:
+			addrs = socket.getaddrinfo(addr[0], 0, 0, socket.SOCK_DGRAM, socket.SOL_UDP)
 			af, socktype, proto, canonname, sa = addrs[0]
 			self.socket = socket.socket(af, socktype, proto)
 		else:
 			self.socket = socks.socksocket(socket.AF_INET, socket.SOCK_DGRAM)
 			self.socket.set_proxy(socks.SOCKS5, proxy[0], proxy[1])
 		self.socket.setblocking(False)
+
 		self.last_update_time = time.time()
 		self.ttl = ttl
 
@@ -37,7 +44,7 @@ class UDPHandler(object):
 
 	def recvfrom(self):
 		try:
-			res = self.socket.recvfrom(2048)
+			res = self.socket.recvfrom(BUF_SIZE)
 			self.last_update_time = time.time()
 			return res
 		except Exception as e:
@@ -55,16 +62,21 @@ class UDPHandler(object):
 class UDPRelay(object):
 	def __init__(self, proxy, target_dns_list):
 		super(UDPRelay, self).__init__()
-		addrs = socket.getaddrinfo("0.0.0.0", 0, 0, socket.SOCK_DGRAM, socket.SOL_UDP)
-		af, socktype, proto, canonname, sa = addrs[0]
-		self.socket = socket.socket(af, socktype, proto)
-		self.socket.setblocking(False)
+		self._eventloop = None
+		self._closed = False
+
+		self.socket = None
 		self.handler = {}
 		self.proxy = proxy
 		self.target = target_dns_list
+		self._fd_to_h = {}
 
 	def bind(self, addr, port):
 		try:
+			addrs = socket.getaddrinfo(addr, port, 0, socket.SOCK_DGRAM, socket.SOL_UDP)
+			af, socktype, proto, canonname, sa = addrs[0]
+			self.socket = socket.socket(af, socktype, proto)
+			self.socket.setblocking(False)
 			self.socket.bind((addr, port))
 			logging.info("bind %s:%d success" % (addr, port))
 			return True
@@ -79,46 +91,83 @@ class UDPRelay(object):
 
 	def recvfrom(self):
 		try:
-			res = self.socket.recvfrom(2048)
+			res = self.socket.recvfrom(BUF_SIZE)
 			return res
 		except Exception as e:
 			pass
 
-	def loop(self):
+	def add_to_loop(self, loop):
+		if self._eventloop:
+			raise Exception('already add to loop')
+		if self._closed:
+			raise Exception('already closed')
+		self._eventloop = loop
+		loop.add_handler(self._handle_events)
+
+		self._eventloop.add(self.socket,
+							eventloop.POLL_IN | eventloop.POLL_ERR)
+
+	def _handle_server(self):
 		recv = self.recvfrom()
 		if recv is not None:
 			logging.info("send %s %d bytes" % ( recv[1], len(recv[0]) ) )
 			for target in self.target:
 				key = (recv[1], target)
 				if key not in self.handler:
-					self.handler[key] = UDPHandler(self.proxy, 10)
+					self.handler[key] = UDPHandler(target, self.proxy, 10)
+					self.handler[key].key = key
+					self._fd_to_h[self.handler[key].socket] = self.handler[key]
+					self._eventloop.add(self.handler[key].socket, eventloop.POLL_IN)
 				handler = self.handler[key]
 				logging.debug("send %s %d bytes to %s" % ( recv[1], len(recv[0]), target ) )
 				#handler.sendto(recv[0], (target, 53))
 				threading.Thread(target = handler.sendto, args = (recv[0], (target, 53))).start()
 
+	def _handle_client(self, sock):
+		handler = self._fd_to_h[sock]
+		recv = handler.recvfrom()
+		if recv is not None:
+			key = handler.key
+			logging.debug("recv %s %d bytes from %s" % ( key, len(recv[0]), recv[1] ) )
+			self.sendto(recv[0], key[0])
+
+		'''
 		for key in self.handler:
 			handler = self.handler[key]
-			recv = handler.recvfrom()
-			if recv is not None:
-				logging.debug("recv %s %d bytes from %s" % ( key, len(recv[0]), recv[1] ) )
-				self.sendto(recv[0], key[0])
-				#threading.Thread(target = self.sendto, args = (recv[0], key[0])).start()
+			if handler.socket == sock:
+				recv = handler.recvfrom()
+				if recv is not None:
+					logging.debug("recv %s %d bytes from %s" % ( key, len(recv[0]), recv[1] ) )
+					self.sendto(recv[0], key[0])
+		'''
 
-		for key in self.handler:
+	def _handle_events(self, events):
+		# handle events and dispatch to handlers
+		for sock, fd, event in events:
+			if sock == self.socket:
+				if event & eventloop.POLL_ERR:
+					logging.error('UDP server_socket err')
+				self._handle_server()
+			else:
+				if event & eventloop.POLL_ERR:
+					logging.error('UDP client_socket err')
+				self._handle_client(sock)
+
+		for key in self.handler.keys():
 			handler = self.handler[key]
 			if handler.is_expire():
+				self._eventloop.remove(handler.socket)
 				logging.debug("close %s" % (key,) )
 				handler.close()
+				del self._fd_to_h[handler.socket]
 				del self.handler[key]
-				break
 
 def main_loop(bindaddr, dnslist, proxy):
 	dns = UDPRelay(proxy, dnslist)
+	loop = eventloop.EventLoop()
 	if dns.bind(bindaddr[0], bindaddr[1]):
-		while True:
-			dns.loop()
-			time.sleep(0.01)
+		dns.add_to_loop(loop)
+		loop.run()
 	else:
 		logging.error("bind failed")
 
